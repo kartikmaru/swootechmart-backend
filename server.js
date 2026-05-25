@@ -5,11 +5,12 @@ const cors = require("cors")
 const app = express()
 let cookieParser = require('cookie-parser')
 app.use(express.json())
-app.use(express.static("./public"))
-app.use(cookieParser())
 app.get("/",(req,res)=>{
     res.send("backend is running")
 })
+app.use(express.static("./public"))
+app.use(cookieParser())
+
 
 app.use(cors({
     origin: "http://localhost:3000",
