@@ -64,8 +64,8 @@ const Login = async (req, res) => {
         res.cookie('jwt', token, {
             maxAge: 30 * 24 * 60 * 60 * 1000, // 30 Days
             httpOnly: true,
-            secure: false,   // recommended for production
-            sameSite: 'Strict'
+            secure: false,
+            sameSite: 'Lax'
         });
 
         sendSuccess(res, {

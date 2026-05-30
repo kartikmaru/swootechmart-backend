@@ -1,8 +1,18 @@
 const CategoryModel = require("../models/CategoryModel")
 const imageName = require("../Utils/Helper")
-
+const fs = require("fs")
+const path = require("path")
 
 const { sendSuccess, sendCreated, notFound, serverError, sendOk, deletedError, sendBadRequest, sendConflict } = require("../Utils/Response")
+
+// Helper — silently delete a file if it exists
+function deleteFile(filePath) {
+    fs.unlink(filePath, (err) => {
+        if (err && err.code !== "ENOENT") {
+            console.log("Could not delete file:", filePath, err.message)
+        }
+    })
+}
 
 const CreateCategory = async (req, res) => {
     try {
@@ -113,6 +123,11 @@ const deleteCategory = async (req, res) => {
 
         const category = await CategoryModel.findByIdAndDelete(id)
 
+        // Delete category image from public/category/
+        if (category && category.image) {
+            deleteFile(path.join(".", "public", "category", category.image))
+        }
+
         deletedError(res)
 
     } catch (error) {
@@ -140,6 +155,10 @@ const update = async (req, res) => {
         }
 
         if (image) {
+            // Delete old image before saving new one
+            if (category.image) {
+                deleteFile(path.join(".", "public", "category", category.image))
+            }
             const category_image = imageName(image.name)
             const destination = `./public/category/${category_image}`
 

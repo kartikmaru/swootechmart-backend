@@ -5,6 +5,16 @@ const ColorModel = require("../models/ColorModel")
 const imageName = require("../Utils/Helper")
 const { sendSuccess, serverError, sendConflict, sendBadRequest, notFound } = require("../Utils/Response")
 const fs = require("fs")
+const path = require("path")
+
+// Helper — silently delete a file if it exists
+function deleteFile(filePath) {
+    fs.unlink(filePath, (err) => {
+        if (err && err.code !== "ENOENT") {
+            console.log("Could not delete file:", filePath, err.message)
+        }
+    })
+}
 
 
 
@@ -273,6 +283,19 @@ const deleteProduct = async (req, res) => {
 
         const product = await ProductModel.findByIdAndDelete(id)
 
+        if (product) {
+            // Delete thumbnail from public/product/
+            if (product.thumbnail) {
+                deleteFile(path.join(".", "public", "product", product.thumbnail))
+            }
+            // Delete all additional images from public/product/other/
+            if (product.images && product.images.length > 0) {
+                product.images.forEach(img => {
+                    deleteFile(path.join(".", "public", "product", "other", img))
+                })
+            }
+        }
+
         sendSuccess(res)
 
     } catch (error) {
@@ -320,4 +343,47 @@ const deleteProduct = async (req, res) => {
 //     }
 // }
 
-module.exports = { create, read, upload_image, updateProduct, readById, delete_image, deleteProduct }
+const update = async (req, res) => {
+    try {
+        const id = req.params.id
+        const product = await ProductModel.findById(id)
+        if (!product) return notFound(res)
+
+        const object = {}
+
+        if (req.body.name)              object.name               = req.body.name
+        if (req.body.slug)              object.slug               = req.body.slug
+        if (req.body.original_price)    object.original_price     = req.body.original_price
+        if (req.body.final_price)       object.final_price        = req.body.final_price
+        if (req.body.discount)          object.discount           = req.body.discount
+        if (req.body.short_description) object.short_description  = req.body.short_description
+        if (req.body.long_description)  object.long_description   = req.body.long_description
+        if (req.body.category_Id)       object.category_Id        = req.body.category_Id
+        if (req.body.brand_Id)          object.brand_Id           = req.body.brand_Id
+        if (req.body.color_Id)          object.color_Id           = JSON.parse(req.body.color_Id)
+        if (req.body.stock  !== undefined) object.stock           = req.body.stock  === "true"
+        if (req.body.top_selling !== undefined) object.top_selling = req.body.top_selling === "true"
+        if (req.body.status !== undefined) object.status          = req.body.status === "true"
+
+        const thumbnail = req.files?.thumbnail
+        if (thumbnail) {
+            // Delete old thumbnail before saving new one
+            if (product.thumbnail) {
+                deleteFile(path.join(".", "public", "product", product.thumbnail))
+            }
+            const img_name = imageName(thumbnail.name)
+            const destination = `./public/product/${img_name}`
+            await thumbnail.mv(destination)
+            object.thumbnail = img_name
+        }
+
+        await ProductModel.updateOne({ _id: id }, { $set: object })
+        return sendSuccess(res, "Product Updated Successfully")
+
+    } catch (error) {
+        console.log(error)
+        return serverError(res)
+    }
+}
+
+module.exports = { create, read, upload_image, updateProduct, update, readById, delete_image, deleteProduct }

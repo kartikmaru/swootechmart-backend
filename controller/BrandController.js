@@ -1,6 +1,17 @@
 const BrandModel = require("../models/BrandModel");
 const imageName = require("../Utils/Helper");
+const fs = require("fs")
+const path = require("path")
 const { sendSuccess, sendCreated, notFound, serverError, sendOk, deletedError, sendBadRequest, sendConflict } = require("../Utils/Response")
+
+// Helper — silently delete a file if it exists
+function deleteFile(filePath) {
+    fs.unlink(filePath, (err) => {
+        if (err && err.code !== "ENOENT") {
+            console.log("Could not delete file:", filePath, err.message)
+        }
+    })
+}
 
 const createBrand = async (req, res) => {
     try {
@@ -83,14 +94,19 @@ const readById = async (req, res) => {
 
 const deleteBrand = async (req, res) => {
     try {
-
         const id = req.params.id
 
         const brand = await BrandModel.findByIdAndDelete(id)
+
+        // Delete brand image from public/brand/
+        if (brand && brand.image) {
+            deleteFile(path.join(".", "public", "brand", brand.image))
+        }
+
         sendSuccess(res, brand)
 
     } catch (error) {
-
+        return serverError(res)
     }
 }
 
@@ -119,6 +135,10 @@ const update = async (req, res) => {
         }
 
         if (image) {
+            // Delete old image before saving new one
+            if (brand.image) {
+                deleteFile(path.join(".", "public", "brand", brand.image))
+            }
             const brandImage = imageName(image.name)
             const destination = `./public/brand/${brandImage}`
             await image.mv(destination)
