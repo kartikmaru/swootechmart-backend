@@ -61,11 +61,13 @@ const Login = async (req, res) => {
         }
         const token = generateToken(user._id)
 
+        const isProduction = process.env.NODE_ENV === 'production'
+
         res.cookie('jwt', token, {
             maxAge: 30 * 24 * 60 * 60 * 1000, // 30 Days
             httpOnly: true,
-            secure: false,
-            sameSite: 'Lax'
+            secure: isProduction,           // true on HTTPS (Render), false on localhost
+            sameSite: isProduction ? 'None' : 'Lax'  // None for cross-origin HTTPS, Lax for local
         });
 
         sendSuccess(res, {
