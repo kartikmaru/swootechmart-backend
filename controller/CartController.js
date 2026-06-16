@@ -20,7 +20,7 @@ const syncCart = async (req, res) => {
                 message: "Fetched cart from server",
                 success: true,
                 cart: userCart ? userCart.items : [],
-                imageBaseUrl: "http://localhost:5000/category/"
+                imageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/product/"
             });
         }
 
@@ -76,7 +76,7 @@ const syncCart = async (req, res) => {
             message: "Cart synced successfully",
             success: true,
             cart: populatedCart,
-            imageBaseUrl: "http://localhost:5000/product/"
+            imageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/product/"
 
         });
 

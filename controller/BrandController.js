@@ -1,5 +1,6 @@
 const BrandModel = require("../models/BrandModel");
 const imageName = require("../Utils/Helper");
+
 const fs = require("fs")
 const path = require("path")
 const { sendSuccess, sendCreated, notFound, serverError, sendOk, deletedError, sendBadRequest, sendConflict } = require("../Utils/Response")
@@ -66,7 +67,7 @@ const readBrand = async (req, res) => {
         const total = await BrandModel.countDocuments()
         return sendSuccess(res, data, {
             total: total,
-            imageBaseUrl: "http://localhost:5000/brand/"
+            imageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/brand/"
         })
     } catch (error) {
         return serverError(res)
@@ -82,7 +83,7 @@ const readById = async (req, res) => {
         if (brand) {
             return sendSuccess(res, brand, {
                 total,
-                ImageBaseUrl: "http://localhost:5000/brand/"
+                ImageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/brand/"
             })
         }
 

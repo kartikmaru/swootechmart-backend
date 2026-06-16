@@ -1,5 +1,6 @@
 const CategoryModel = require("../models/CategoryModel")
 const imageName = require("../Utils/Helper")
+
 const fs = require("fs")
 const path = require("path")
 
@@ -63,7 +64,7 @@ const read = async (req, res) => {
         const total = await CategoryModel.countDocuments()
         sendSuccess(res, data, {
             total,
-            ImageBaseUrl: "http://localhost:5000/category/"
+            ImageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/category/"
         })
     } catch (error) {
         console.log("ERROR:", error)
@@ -77,7 +78,7 @@ const readById = async (req, res) => {
         const total = await CategoryModel.countDocuments()
         const meta = {
             total,
-            ImageBaseUrl: "http://localhost:5000/category/"
+            ImageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/category/"
         }
         const category = await CategoryModel.findById(id)
         if (category) {

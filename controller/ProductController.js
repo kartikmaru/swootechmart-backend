@@ -3,6 +3,7 @@ const BrandModel = require("../models/BrandModel")
 const ProductModel = require("../models/ProductModel")
 const ColorModel = require("../models/ColorModel")
 const imageName = require("../Utils/Helper")
+
 const { sendSuccess, serverError, sendConflict, sendBadRequest, notFound } = require("../Utils/Response")
 const fs = require("fs")
 const path = require("path")
@@ -160,7 +161,7 @@ const read = async (req, res) => {
             skip,
             pages: Math.ceil(total / limit),
             total: total,
-            imageBaseUrl: "http://localhost:5000/product/"
+            imageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/product/"
         })
     } catch (error) {
         return serverError(res)
@@ -223,7 +224,7 @@ const readById = async (req, res) => {
         const total = await ProductModel.countDocuments()
         const meta = {
             total,
-            imageBaseUrl: "http://localhost:5000/product/other/"
+            imageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/product/other/"
         }
         const product = await ProductModel.findById(id)
             .populate([
