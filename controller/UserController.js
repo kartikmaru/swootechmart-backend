@@ -47,27 +47,27 @@ const Login = async (req, res) => {
     try {
         const { email, password } = req.body
 
-        const user = await UserModel.findOne({ email })
-        if (!user && user.isVerified !== true) return sendConflict(res, "User does not Exist")
-
         if (!email || !password) {
             return sendBadRequest(res, "Email and Password are required")
         }
+
+        const user = await UserModel.findOne({ email })
+        if (!user) return sendBadRequest(res, "User does not Exist")
 
         const decryptedPass = cryptr.decrypt(user.password);
 
         if (decryptedPass !== password) {
             return sendBadRequest(res, "Incorrect Password")
         }
+
         const token = generateToken(user._id)
 
-        const isProduction = process.env.NODE_ENV === 'production'
-
+        // SameSite=None + Secure=true required for cross-origin cookies (Vercel → Render)
         res.cookie('jwt', token, {
-            maxAge: 30 * 24 * 60 * 60 * 1000, // 30 Days
+            maxAge: 30 * 24 * 60 * 60 * 1000,
             httpOnly: true,
-            secure: isProduction,           // true on HTTPS (Render), false on localhost
-            sameSite: isProduction ? 'None' : 'Lax'  // None for cross-origin HTTPS, Lax for local
+            secure: true,
+            sameSite: 'None'
         });
 
         sendSuccess(res, {

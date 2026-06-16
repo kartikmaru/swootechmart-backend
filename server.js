@@ -12,18 +12,10 @@ app.use(express.static("./public"))
 app.use(cookieParser())
 
 
-const allowedOrigins = [
-    "http://localhost:3000",
-    "https://swootechmart-backend.onrender.com"
-]
-
 app.use(cors({
     origin: function (origin, callback) {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true)
-        } else {
-            callback(new Error("Not allowed by CORS"))
-        }
+        // Allow all origins — works for localhost and all Vercel deployments
+        callback(null, true)
     },
     credentials: true
 }));
