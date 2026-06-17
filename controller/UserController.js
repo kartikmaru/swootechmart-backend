@@ -73,7 +73,8 @@ const Login = async (req, res) => {
         sendSuccess(res, {
             id: user._id,
             name: user.name,
-            email: user.email
+            email: user.email,
+            token   // frontend localStorage me save karega
         }, {}, "User Loged In Successfully")
 
     } catch (error) {
