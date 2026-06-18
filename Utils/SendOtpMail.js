@@ -2,42 +2,41 @@ const nodemailer = require("nodemailer");
 
 const SendOtp = async (toEmail, otp) => {
     try {
-        console.log(`[OTP] Sending to: ${toEmail}, USER: ${process.env.EMAIL_USER}`);
+        console.log(`[OTP] Attempting to send to: ${toEmail}`);
+        console.log(`[OTP] EMAIL_USER set: ${!!process.env.EMAIL_USER}`);
+        console.log(`[OTP] EMAIL_PASS set: ${!!process.env.EMAIL_PASS}`);
 
         const transporter = nodemailer.createTransport({
-            service: "gmail",
-            port: 587,
-            secure: false,
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true,          // port 465 = SSL
             auth: {
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASS,
             },
         });
 
-        const mailOptions = {
-            from: `Ishop Website <${process.env.EMAIL_USER}>`,
+        const info = await transporter.sendMail({
+            from: `Ishop <${process.env.EMAIL_USER}>`,
             to: toEmail,
-            subject: "Your OTP Code",
+            subject: "Your OTP Code - SwooTechMart",
             html: `
-                <div style="font-family: Arial, sans-serif; padding: 20px;">
+                <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 400px;">
                     <h2 style="color:#01A49E;">OTP Verification</h2>
-                    <p>Your One-Time Password (OTP) is:</p>
-                    <h1 style="letter-spacing: 5px; color: #333;">${otp}</h1>
-                    <p>This OTP is valid for 3 minutes.</p>
-                    <p>If you didn't request this, please ignore this email.</p>
+                    <p>Your One-Time Password is:</p>
+                    <h1 style="letter-spacing: 8px; color: #333; font-size: 36px;">${otp}</h1>
+                    <p style="color:#666;">Valid for 3 minutes only.</p>
+                    <p style="color:#999; font-size:12px;">If you didn't request this, ignore this email.</p>
                 </div>
             `,
-        };
+        });
 
-        const info = await transporter.sendMail(mailOptions);
-        console.log(`[OTP] Email sent successfully to ${toEmail}:`, info.response);
-        return { success: true, message: "OTP sent successfully" };
+        console.log(`[OTP] Sent successfully: ${info.response}`);
+        return { success: true };
 
     } catch (error) {
-        console.error(`[OTP] FAILED to send email to ${toEmail}`);
-        console.error(`[OTP] Error code: ${error.code}`);
-        console.error(`[OTP] Error message: ${error.message}`);
-        return { success: false, message: "Failed to send OTP" };
+        console.error(`[OTP] FAILED: ${error.message} | code: ${error.code}`);
+        return { success: false };
     }
 };
 
