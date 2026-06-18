@@ -66,12 +66,15 @@ const Login = async (req, res) => {
         
         console.log(token)
 
-        // SameSite=None + Secure=true required for cross-origin cookies (Vercel → Render)
+        // Production (Render HTTPS) → secure:true + sameSite:None (cross-origin)
+        // Local (HTTP) → secure:false + sameSite:Lax
+        const isProd = !!process.env.RENDER
+
         res.cookie('jwt', token, {
             maxAge: 30 * 24 * 60 * 60 * 1000,
             httpOnly: true,
-            secure: true,
-            sameSite: 'None'
+            secure: isProd,
+            sameSite: isProd ? 'None' : 'Lax'
         });
 
         sendSuccess(res, {
