@@ -141,4 +141,85 @@ const verifyPayment = async (req, res) => {
 };
 
 
-module.exports = { create, verifyPayment }
+const getMyOrders = async (req, res) => {
+    try {
+        const userId = req.user._id
+
+        const orders = await orderModel.find({ user: userId })
+            .populate({
+                path: 'items.product_id',
+                select: 'name thumbnail slug'
+            })
+            .sort({ createdAt: -1 })  // latest first
+
+        const imageBaseUrl = (process.env.BACKEND_URL || 'http://localhost:5000') + '/product/'
+
+        return res.status(200).json({
+            success: true,
+            data: orders,
+            meta: { imageBaseUrl }
+        })
+    } catch (error) {
+        console.log(error)
+        return serverError(res)
+    }
+}
+
+const getOrderById = async (req, res) => {
+    try {
+        const userId  = req.user._id
+        const orderId = req.params.id
+
+        const order = await orderModel.findById(orderId)
+            .populate({
+                path: 'items.product_id',
+                select: 'name thumbnail slug original_price final_price'
+            })
+
+        if (!order) {
+            return res.status(404).json({ success: false, msg: 'Order not found' })
+        }
+
+        // User sirf apna order dekh sake
+        if (order.user.toString() !== userId.toString()) {
+            return res.status(401).json({ success: false, msg: 'Unauthorized' })
+        }
+
+        const imageBaseUrl = (process.env.BACKEND_URL || 'http://localhost:5000') + '/product/'
+
+        return res.status(200).json({
+            success: true,
+            data: order,
+            meta: { imageBaseUrl }
+        })
+    } catch (error) {
+        console.log(error)
+        return serverError(res)
+    }
+}
+
+const cancelOrder = async (req, res) => {
+    try {
+        const userId  = req.user._id
+        const orderId = req.params.id
+
+        const order = await orderModel.findById(orderId)
+        if (!order) return res.status(404).json({ success: false, msg: 'Order not found' })
+        if (order.user.toString() !== userId.toString()) {
+            return res.status(401).json({ success: false, msg: 'Unauthorized' })
+        }
+        if (!['placed', 'confirmed'].includes(order.orderStatus)) {
+            return res.status(400).json({ success: false, msg: 'Order cannot be cancelled at this stage' })
+        }
+
+        order.orderStatus = 'cancelled'
+        await order.save()
+
+        return res.status(200).json({ success: true, msg: 'Order cancelled successfully' })
+    } catch (error) {
+        console.log(error)
+        return serverError(res)
+    }
+}
+
+module.exports = { create, verifyPayment, getMyOrders, getOrderById, cancelOrder }
