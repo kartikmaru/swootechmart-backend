@@ -51,6 +51,8 @@ const Login = async (req, res) => {
             return sendBadRequest(res, "Email and Password are required")
         }
 
+        console.log(email,password)
+
         const user = await UserModel.findOne({ email })
         if (!user) return sendBadRequest(res, "User does not Exist")
 
@@ -61,6 +63,8 @@ const Login = async (req, res) => {
         }
 
         const token = generateToken(user._id)
+        
+        console.log(token)
 
         // SameSite=None + Secure=true required for cross-origin cookies (Vercel → Render)
         res.cookie('jwt', token, {
