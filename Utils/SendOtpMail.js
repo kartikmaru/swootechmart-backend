@@ -9,12 +9,16 @@ const SendOtp = async (toEmail, otp) => {
         const transporter = nodemailer.createTransport({
             host: 'smtp.gmail.com',
             port: 465,
-            secure: true,          // port 465 = SSL
+            secure: true,
             auth: {
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASS,
             },
         });
+
+        // Verify connection first
+        await transporter.verify();
+        console.log('[OTP] SMTP connection verified');
 
         const info = await transporter.sendMail({
             from: `Ishop <${process.env.EMAIL_USER}>`,
@@ -35,7 +39,9 @@ const SendOtp = async (toEmail, otp) => {
         return { success: true };
 
     } catch (error) {
-        console.error(`[OTP] FAILED: ${error.message} | code: ${error.code}`);
+        console.error(`[OTP] FAILED: ${error.message}`);
+        console.error(`[OTP] Error code: ${error.code}`);
+        console.error(`[OTP] Error stack: ${error.stack?.split('\n')[0]}`);
         return { success: false };
     }
 };
