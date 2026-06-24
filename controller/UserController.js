@@ -51,12 +51,10 @@ const Login = async (req, res) => {
             return sendBadRequest(res, "Email and Password are required")
         }
 
-        console.log(email, password)
-
         const user = await UserModel.findOne({ email })
         if (!user) return sendBadRequest(res, "User does not Exist")
 
-        const decryptedPass = cryptr.decrypt(user.password);
+        const decryptedPass = cryptr.decrypt(user.password)
 
         if (decryptedPass !== password) {
             return sendBadRequest(res, "Incorrect Password")
@@ -64,25 +62,27 @@ const Login = async (req, res) => {
 
         const token = generateToken(user._id)
 
-        // Production (Render HTTPS) → secure:true + sameSite:None (cross-origin cookies)
-        // Local (HTTP)              → secure:false + sameSite:Lax
+        // Cross-origin cookie requirements:
+        //   Production (Render HTTPS → Vercel): secure:true + sameSite:'None'
+        //   sameSite:'None' REQUIRES secure:true — browsers block otherwise
+        //   Development (localhost HTTP):        secure:false + sameSite:'Lax'
         const isProd = process.env.NODE_ENV === 'production'
 
-        const cookieOptions = {
-            maxAge: 30 * 24 * 60 * 60 * 1000,  // 30 days in ms
-            httpOnly: true,                      // JS se access nahi — XSS protection
-            secure: isProd,                      // HTTPS only in production
-            sameSite: isProd ? 'None' : 'Lax'   // cross-origin in prod, lax in dev
-        }
+        res.cookie('jwt', token, {
+            maxAge:   30 * 24 * 60 * 60 * 1000,   // 30 days
+            httpOnly: true,                          // inaccessible to JS — XSS protection
+            secure:   isProd,                        // HTTPS only in production
+            sameSite: isProd ? 'None' : 'Lax',      // cross-origin in prod
+            path:     '/',                           // available for all routes
+        })
 
-        res.cookie('jwt', token, cookieOptions);
-
-        sendSuccess(res, {
-            id: user._id,
-            name: user.name,
+        return sendSuccess(res, {
+            id:    user._id,
+            name:  user.name,
             email: user.email,
-            token   // frontend localStorage me save karega
-        }, {}, "User Loged In Successfully")
+            role:  user.role,
+            token,   // frontend stores in localStorage as Authorization header fallback
+        }, {}, "Logged In Successfully")
 
     } catch (error) {
         serverError(res, error)
@@ -153,18 +153,18 @@ const logout = (req, res) => {
     try {
         const isProd = process.env.NODE_ENV === 'production'
 
-        // clearCookie must mirror the same options used when cookie was set
+        // MUST mirror all options used when setting the cookie — otherwise browser won't clear it
         res.clearCookie('jwt', {
             httpOnly: true,
-            secure: isProd,
-            sameSite: isProd ? 'None' : 'Lax'
+            secure:   isProd,
+            sameSite: isProd ? 'None' : 'Lax',
+            path:     '/',
         })
         return sendSuccess(res)
     } catch (error) {
         console.log(error)
         return serverError(res, error)
     }
-
 }
 
 const delete_addresses = async (req, res) => {
