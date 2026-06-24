@@ -90,23 +90,63 @@ const Login = async (req, res) => {
 }
 
 const verifyEmail = async (req, res) => {
-    const { email, otp } = req.body
-    const user = await UserModel.findOne({ email })
-    if (!user) return notFound(res, "User Not Found")
-    if (user.isVerified) {
-        return sendBadRequest(res, "Email Already Varified")
+    try {
+        const { email, otp } = req.body
+
+        const user = await UserModel.findOne({ email })
+        if (!user) return notFound(res, "User Not Found")
+
+        if (user.isVerified) {
+            // Already verified — just log them in
+            const token  = generateToken(user._id)
+            const isProd = process.env.NODE_ENV === 'production'
+            res.cookie('jwt', token, {
+                maxAge: 30 * 24 * 60 * 60 * 1000,
+                httpOnly: true, secure: isProd, sameSite: isProd ? 'None' : 'Lax', path: '/',
+            })
+            return sendSuccess(res, {
+                id: user._id, name: user.name, email: user.email, role: user.role, token,
+            }, {}, "Email already verified — logged in")
+        }
+
+        if (user.otp !== parseInt(otp)) {
+            return sendBadRequest(res, "Invalid OTP — please check and try again")
+        }
+
+        if (user.otpExpire < Date.now()) {
+            return sendBadRequest(res, "OTP has expired — please request a new one")
+        }
+
+        // Mark email as verified
+        user.isVerified  = true
+        user.otpExpire   = undefined
+        user.otp         = undefined
+        await user.save()
+
+        // Auto-login: generate token + set cookie — same as Login
+        const token  = generateToken(user._id)
+        const isProd = process.env.NODE_ENV === 'production'
+
+        res.cookie('jwt', token, {
+            maxAge:   30 * 24 * 60 * 60 * 1000,
+            httpOnly: true,
+            secure:   isProd,
+            sameSite: isProd ? 'None' : 'Lax',
+            path:     '/',
+        })
+
+        // Return token so frontend can save to localStorage (same pattern as Login)
+        return sendSuccess(res, {
+            id:    user._id,
+            name:  user.name,
+            email: user.email,
+            role:  user.role,
+            token,
+        }, {}, "Email verified successfully — welcome!")
+
+    } catch (error) {
+        return serverError(res, error)
     }
-    if (user.otp !== parseInt(otp)) {
-        return sendBadRequest(res, "Invalid OTP")
-    }
-    if (user.otpExpire < Date.now()) {
-        return sendBadRequest(res, "Otp Expired")
-    }
-    user.isVerified = true
-    user.otpExpire = undefined
-    user.otp = undefined
-    user.save()
-    sendSuccess(res, "Email Verified Successfully")
 }
 
 const resetOtp = async (req, res) => {
