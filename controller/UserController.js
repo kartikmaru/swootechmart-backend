@@ -51,7 +51,7 @@ const Login = async (req, res) => {
             return sendBadRequest(res, "Email and Password are required")
         }
 
-        console.log(email,password)
+        console.log(email, password)
 
         const user = await UserModel.findOne({ email })
         if (!user) return sendBadRequest(res, "User does not Exist")
@@ -63,19 +63,19 @@ const Login = async (req, res) => {
         }
 
         const token = generateToken(user._id)
-        
-        console.log(token)
 
-        // Production (Render HTTPS) → secure:true + sameSite:None (cross-origin)
-        // Local (HTTP) → secure:false + sameSite:Lax
-        const isProd = !!process.env.RENDER
+        // Production (Render HTTPS) → secure:true + sameSite:None (cross-origin cookies)
+        // Local (HTTP)              → secure:false + sameSite:Lax
+        const isProd = process.env.NODE_ENV === 'production'
 
-        res.cookie('jwt', token, {
-            maxAge: 30 * 24 * 60 * 60 * 1000,
-            httpOnly: true,
-            secure: isProd,
-            sameSite: isProd ? 'None' : 'Lax'
-        });
+        const cookieOptions = {
+            maxAge: 30 * 24 * 60 * 60 * 1000,  // 30 days in ms
+            httpOnly: true,                      // JS se access nahi — XSS protection
+            secure: isProd,                      // HTTPS only in production
+            sameSite: isProd ? 'None' : 'Lax'   // cross-origin in prod, lax in dev
+        }
+
+        res.cookie('jwt', token, cookieOptions);
 
         sendSuccess(res, {
             id: user._id,
@@ -151,7 +151,14 @@ const getMe = async (req, res) => {
 
 const logout = (req, res) => {
     try {
-        res.clearCookie('jwt');
+        const isProd = process.env.NODE_ENV === 'production'
+
+        // clearCookie must mirror the same options used when cookie was set
+        res.clearCookie('jwt', {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: isProd ? 'None' : 'Lax'
+        })
         return sendSuccess(res)
     } catch (error) {
         console.log(error)

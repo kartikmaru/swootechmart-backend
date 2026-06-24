@@ -150,7 +150,7 @@ const read = async (req, res) => {
                         path: "brand_Id"
                     },
                     {
-                        select: "name _id",
+                        select: "name _id color_code slug",
                         path: "color_Id"
                     },
                 ])
@@ -237,7 +237,7 @@ const readById = async (req, res) => {
                     path: "brand_Id"
                 },
                 {
-                    select: "name _id",
+                    select: "name _id color_code slug",
                     path: "color_Id"
                 },
             ])

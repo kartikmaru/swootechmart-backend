@@ -3,7 +3,7 @@ const { Schema } = mongoose;
 
 
 const productDetailsSchema = new Schema({
-    product_id: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    product_id: { type: Schema.Types.ObjectId, ref: 'product', required: true },
     qty: { type: Number, required: true },
     price: { type: Number, required: true },
     total: { type: Number, required: true },
@@ -41,7 +41,7 @@ const orderSchema = new mongoose.Schema({
 
     paymentStatus: {
         type: String,
-        enum: ["pending", "paid", "failed"],
+        enum: ["pending", "paid", "failed", "refund_pending", "refunded"],
         default: "pending"
     },
 
