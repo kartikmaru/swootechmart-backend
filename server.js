@@ -27,16 +27,18 @@ app.use(cors({
         console.warn('[CORS] Blocked origin:', origin)
         callback(new Error(`CORS: origin '${origin}' not allowed`))
     },
-    credentials:    true,   // REQUIRED for cross-origin cookies + Authorization header
+    credentials:    true,
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie'],
     exposedHeaders: ['Authorization', 'Set-Cookie'],
     methods:        ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    preflightContinue: false,
-    optionsSuccessStatus: 204,   // some browsers (IE11) choke on 200 for OPTIONS
+    preflightContinue:   false,
+    optionsSuccessStatus: 204,
 }))
 
-// Explicitly handle OPTIONS for all routes (belt-and-suspenders for some hosting)
-app.options('*', cors())
+// Handle OPTIONS preflight using regex — avoids bare '*' which breaks path-to-regexp v8 (Node 24)
+// app.use(cors()) above already handles OPTIONS when preflightContinue is false,
+// but this explicit handler ensures preflight works for all paths on stricter hosts
+app.options(/\/.*/, cors())
 
 // ── Body parsers ──────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }))

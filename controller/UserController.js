@@ -11,32 +11,35 @@ const Register = async (req, res) => {
     try {
         const { name, email, password } = req.body
 
-        const user = await UserModel.findOne({ email })
-        if (user) return sendConflict(res, "User Already Exist")
-
         if (!name || !email || !password) {
             return sendBadRequest(res, "Name, Email and Password are required")
         }
 
+        const existing = await UserModel.findOne({ email })
+        if (existing) return sendConflict(res, "An account with this email already exists")
+
         const encryptedPassword = cryptr.encrypt(password)
-        const otp = Math.floor(100000 + Math.random() * 900000)
-        const otpExpire = new Date(Date.now() + 3 * 60 * 1000)
+        const otp       = Math.floor(100000 + Math.random() * 900000)
+        const otpExpire = new Date(Date.now() + 10 * 60 * 1000)   // 10 minutes
 
         const NewUser = await UserModel.create({
             name,
             email,
             password: encryptedPassword,
             otp,
-            otpExpire
+            otpExpire,
         })
 
-        sendSuccess(res, {
-            id: NewUser._id,
-            name: NewUser.name,
-            email: NewUser.email
-        }, {}, "User Created")
-
+        // Send OTP email (non-blocking — fire and forget, don't await)
         SendOtp(email, otp)
+
+        // Return user details so frontend can redirect to OTP page
+        // Note: cookie is NOT set here — only set after email is verified in verifyEmail
+        return sendSuccess(res, {
+            id:    NewUser._id,
+            name:  NewUser.name,
+            email: NewUser.email,
+        }, {}, "Account created — please verify your email with the OTP sent")
 
     } catch (error) {
         serverError(res, error)
@@ -150,26 +153,22 @@ const verifyEmail = async (req, res) => {
 }
 
 const resetOtp = async (req, res) => {
-
     try {
-
         const { email } = req.body
         const user = await UserModel.findOne({ email })
-        if (!user) {
-            return notFound(res, "User Not Found")
-        }
-        const opt = Math.floor(100000 + Math.random() * 900000)
-        user.otp = otp
-        user.otpExpire = new Date(Date.now() + 3 * 60 * 1000)
+        if (!user) return notFound(res, "User Not Found")
+
+        const otp = Math.floor(100000 + Math.random() * 900000)
+        user.otp       = otp
+        user.otpExpire = new Date(Date.now() + 10 * 60 * 1000)
         await user.save()
-        const mail_response = await SendOtp(email, otp)
-        return sendSuccess(res, "Otp Resended")
+
+        SendOtp(email, otp)
+        return sendSuccess(res, null, {}, "OTP resent successfully")
 
     } catch (error) {
         return serverError(res, error)
     }
-
-
 }
 const getMe = async (req, res) => {
 
