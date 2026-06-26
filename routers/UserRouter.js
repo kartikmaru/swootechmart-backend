@@ -3,7 +3,7 @@ const UserRouter = require("express").Router()
 const {
     Register, verifyEmail, resetOtp,
     Login, AdminLogin,
-    getMe, logout, addAddresses, delete_addresses
+    getMe, updateProfile, logout, addAddresses, delete_addresses
 } = require("../controller/UserController")
 const { protect, authorize } = require("../middleware/auth")
 
@@ -18,8 +18,9 @@ UserRouter.post("/logout",     logout)
 UserRouter.post("/admin-login", AdminLogin)
 
 // ── Protected routes ───────────────────────────────────────────────────────────
-UserRouter.get("/get",             protect, getMe)
-UserRouter.post("/addaddresses",   protect, addAddresses)
-UserRouter.put("/deleteaddress",   protect, delete_addresses)
+UserRouter.get("/get",               protect, getMe)
+UserRouter.put("/update-profile",    protect, updateProfile)
+UserRouter.post("/addaddresses",     protect, addAddresses)
+UserRouter.put("/deleteaddress",     protect, delete_addresses)
 
 module.exports = UserRouter

@@ -316,4 +316,38 @@ const AdminLogin = async (req, res) => {
     }
 }
 
-module.exports = { Register, verifyEmail, resetOtp, Login, AdminLogin, getMe, logout, addAddresses, delete_addresses }
+// ── PATCH /api/User/update-profile ───────────────────────────────────────────
+// Allows authenticated users to update their own name and mobile
+const updateProfile = async (req, res) => {
+    try {
+        const userId = req.user._id
+        const { name, mobile } = req.body
+
+        if (!name?.trim()) {
+            return sendBadRequest(res, "Name is required")
+        }
+
+        const update = { name: name.trim() }
+        if (mobile !== undefined) update.mobile = mobile.trim()
+
+        const updatedUser = await UserModel.findByIdAndUpdate(
+            userId,
+            { $set: update },
+            { new: true, select: '-password' }
+        )
+
+        if (!updatedUser) return notFound(res, "User not found")
+
+        return sendSuccess(res, {
+            id:    updatedUser._id,
+            name:  updatedUser.name,
+            email: updatedUser.email,
+            role:  updatedUser.role,
+        }, {}, "Profile updated successfully")
+
+    } catch (error) {
+        return serverError(res, error)
+    }
+}
+
+module.exports = { Register, verifyEmail, resetOtp, Login, AdminLogin, getMe, updateProfile, logout, addAddresses, delete_addresses }
