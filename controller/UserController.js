@@ -266,4 +266,54 @@ const addAddresses = async (req, res) => {
 }
 
 
-module.exports = { Register, verifyEmail, resetOtp, Login, getMe, logout, addAddresses, delete_addresses }
+// Admin-specific login — only allows admin and superAdmin roles
+const AdminLogin = async (req, res) => {
+    try {
+        const { email, password } = req.body
+
+        if (!email || !password) {
+            return sendBadRequest(res, "Email and Password are required")
+        }
+
+        const user = await UserModel.findOne({ email })
+        if (!user) return sendBadRequest(res, "User does not Exist")
+
+        // Role check BEFORE password — don't give timing info to attackers
+        const allowedRoles = ['admin', 'superAdmin']
+        if (!allowedRoles.includes(user.role)) {
+            return res.status(403).json({
+                success: false,
+                msg: "Access denied — admin account required",
+            })
+        }
+
+        const decryptedPass = cryptr.decrypt(user.password)
+        if (decryptedPass !== password) {
+            return sendBadRequest(res, "Incorrect Password")
+        }
+
+        const token  = generateToken(user._id)
+        const isProd = process.env.NODE_ENV === 'production'
+
+        res.cookie('jwt', token, {
+            maxAge:   30 * 24 * 60 * 60 * 1000,
+            httpOnly: true,
+            secure:   isProd,
+            sameSite: isProd ? 'None' : 'Lax',
+            path:     '/',
+        })
+
+        return sendSuccess(res, {
+            id:    user._id,
+            name:  user.name,
+            email: user.email,
+            role:  user.role,
+            token,
+        }, {}, "Admin Login Successful")
+
+    } catch (error) {
+        serverError(res, error)
+    }
+}
+
+module.exports = { Register, verifyEmail, resetOtp, Login, AdminLogin, getMe, logout, addAddresses, delete_addresses }
