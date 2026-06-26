@@ -3,23 +3,20 @@ const UserRouter = require("express").Router()
 const {
     Register, verifyEmail, resetOtp,
     Login, AdminLogin,
-    getMe, updateProfile, logout, addAddresses, delete_addresses
+    getMe, updateProfile, changePassword, logout, addAddresses, delete_addresses
 } = require("../controller/UserController")
-const { protect, authorize } = require("../middleware/auth")
+const { protect } = require("../middleware/auth")
 
-// ── Public routes ──────────────────────────────────────────────────────────────
-UserRouter.post("/create",     Register)
-UserRouter.post("/verify-otp", verifyEmail)
-UserRouter.post("/reset-otp",  resetOtp)
-UserRouter.post("/login",      Login)
-UserRouter.post("/logout",     logout)
+UserRouter.post("/create",           Register)
+UserRouter.post("/verify-otp",       verifyEmail)
+UserRouter.post("/reset-otp",        resetOtp)
+UserRouter.post("/login",            Login)
+UserRouter.post("/logout",           logout)
+UserRouter.post("/admin-login",      AdminLogin)
 
-// ── Admin-only login (checks role before allowing in) ──────────────────────────
-UserRouter.post("/admin-login", AdminLogin)
-
-// ── Protected routes ───────────────────────────────────────────────────────────
 UserRouter.get("/get",               protect, getMe)
 UserRouter.put("/update-profile",    protect, updateProfile)
+UserRouter.patch("/change-password", protect, changePassword)
 UserRouter.post("/addaddresses",     protect, addAddresses)
 UserRouter.put("/deleteaddress",     protect, delete_addresses)
 

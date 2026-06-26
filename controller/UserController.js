@@ -350,4 +350,37 @@ const updateProfile = async (req, res) => {
     }
 }
 
-module.exports = { Register, verifyEmail, resetOtp, Login, AdminLogin, getMe, updateProfile, logout, addAddresses, delete_addresses }
+// ── PATCH /api/User/change-password ──────────────────────────────────────────
+const changePassword = async (req, res) => {
+    try {
+        const userId = req.user._id
+        const { currentPassword, newPassword, confirmPassword } = req.body
+
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            return sendBadRequest(res, "All three password fields are required")
+        }
+        if (newPassword.length < 6) {
+            return sendBadRequest(res, "New password must be at least 6 characters")
+        }
+        if (newPassword !== confirmPassword) {
+            return sendBadRequest(res, "New password and confirm password do not match")
+        }
+
+        const user = await UserModel.findById(userId)
+        if (!user) return notFound(res, "User not found")
+
+        const decryptedCurrent = cryptr.decrypt(user.password)
+        if (decryptedCurrent !== currentPassword) {
+            return sendBadRequest(res, "Current password is incorrect")
+        }
+
+        user.password = cryptr.encrypt(newPassword)
+        await user.save()
+
+        return sendSuccess(res, null, {}, "Password changed successfully")
+    } catch (error) {
+        return serverError(res, error)
+    }
+}
+
+module.exports = { Register, verifyEmail, resetOtp, Login, AdminLogin, getMe, updateProfile, changePassword, logout, addAddresses, delete_addresses }
