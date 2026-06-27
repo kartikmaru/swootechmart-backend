@@ -62,9 +62,11 @@ const read = async (req, res) => {
         const query      = req.query
         const filter     = {}
         const sortFilter = {}
-        const limit      = parseInt(query.limit) || 20
-        const page       = query.page || 1
-        const skip       = ((page - 1) * limit)
+        // If limit not provided or is 0, return all products (admin use case)
+        const limitRaw   = parseInt(query.limit)
+        const limit      = (!isNaN(limitRaw) && limitRaw > 0) ? limitRaw : 0   // 0 = no limit in mongoose
+        const page       = parseInt(query.page) || 1
+        const skip       = limit > 0 ? ((page - 1) * limit) : 0
 
         if (query.id)       filter["_id"]    = query.id
         if (query.status)   filter.status    = query.status === "true"
@@ -102,7 +104,7 @@ const read = async (req, res) => {
         const [total, data] = await Promise.all([
             ProductModel.countDocuments(filter),
             ProductModel.find(filter)
-                .sort(sortFilter).skip(skip).limit(limit)
+                .sort(sortFilter).skip(skip).limit(limit)   // limit=0 means no limit in mongoose
                 .populate([
                     { select: "name _id",              path: "category_Id" },
                     { select: "name _id",              path: "brand_Id" },
@@ -110,12 +112,12 @@ const read = async (req, res) => {
                 ]),
         ])
 
-        // imageBaseUrl is empty string because thumbnails are now full Cloudinary URLs
         return sendSuccess(res, data, {
-            limit, skip,
-            pages: Math.ceil(total / limit),
+            limit: limit || 'all',
+            skip,
+            pages: limit > 0 ? Math.ceil(total / limit) : 1,
             total,
-            imageBaseUrl: "",   // Cloudinary URLs are absolute — no base URL needed
+            imageBaseUrl: "",
         })
     } catch (error) {
         console.error('[Product/read]', error.message)
