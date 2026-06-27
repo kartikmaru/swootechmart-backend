@@ -1,390 +1,304 @@
 const CategoryModel = require("../models/CategoryModel")
-const BrandModel = require("../models/BrandModel")
-const ProductModel = require("../models/ProductModel")
-const ColorModel = require("../models/ColorModel")
-const imageName = require("../Utils/Helper")
+const BrandModel    = require("../models/BrandModel")
+const ProductModel  = require("../models/ProductModel")
+const ColorModel    = require("../models/ColorModel")
 
+const { uploadToCloudinary, deleteFromCloudinary } = require("../Utils/cloudinary")
 const { sendSuccess, serverError, sendConflict, sendBadRequest, notFound } = require("../Utils/Response")
-const fs = require("fs")
-const path = require("path")
 
-// Helper — silently delete a file if it exists
-function deleteFile(filePath) {
-    fs.unlink(filePath, (err) => {
-        if (err && err.code !== "ENOENT") {
-            console.log("Could not delete file:", filePath, err.message)
-        }
-    })
-}
-
-
-
+// ── POST /api/product ─────────────────────────────────────────────────────────
 const create = async (req, res) => {
     try {
-        const { name, slug, original_price, final_price, discount, category_Id, color_Id, brand_Id, short_description, long_description, stock, top_selling, status } = req.body
+        const {
+            name, slug, original_price, final_price, discount,
+            category_Id, color_Id, brand_Id,
+            short_description, long_description,
+            stock, top_selling, status
+        } = req.body
 
-        console.log(req.body)
-        // console.log({
-        //     stock,
-        //     top_selling,
-        //     status
-        // })
+        if (!name || !slug || !original_price || !final_price || !discount ||
+            !category_Id || !color_Id || !brand_Id ||
+            !short_description || !long_description) {
+            return sendBadRequest(res, "All required fields must be provided")
+        }
 
-        const thumbnail = req.files.thumbnail
+        const existing = await ProductModel.findOne({ slug })
+        if (existing) return sendConflict(res, "Product with this slug already exists")
 
-        if (!name || !slug || !original_price || !final_price || !discount || !category_Id || !color_Id || !brand_Id || !short_description || !long_description) return sendBadRequest(res)
+        if (!req.files?.thumbnail) {
+            return sendBadRequest(res, "Thumbnail image is required")
+        }
 
-        const product = await ProductModel.findOne({ slug })
-        if (product) return sendConflict(res)
+        // Upload thumbnail to Cloudinary (no local disk write)
+        const thumbnailUrl = await uploadToCloudinary(
+            req.files.thumbnail.data,
+            'swootechmart/products/thumbnails'
+        )
 
-        console.log({
-            stock: stock === "true",
-            top_selling: top_selling === "true",
-            status: status === "true"
+        await ProductModel.create({
+            name, slug, original_price, final_price, discount,
+            category_Id,
+            color_Id:         JSON.parse(color_Id),
+            brand_Id,
+            short_description,
+            long_description,
+            thumbnail:        thumbnailUrl,    // Cloudinary URL stored directly
+            stock:            stock === "true",
+            top_selling:      top_selling === "true",
+            status:           status === "true",
         })
 
-        const img_name = imageName(thumbnail.name)
-
-        const destination = `./public/product/${img_name}`
-
-        thumbnail.mv(destination, async (err) => {
-            if (err) {
-                return serverError(res, "Unable to load image")
-            }
-            await ProductModel.create({
-                name, slug, original_price, final_price, discount, category_Id, color_Id: JSON.parse(color_Id), brand_Id, short_description, long_description, thumbnail: img_name,
-                stock: stock === "true",
-                top_selling: top_selling === "true",
-                status: status === "true"
-            })
-            return sendSuccess(res)
-        })
+        return sendSuccess(res, null, {}, "Product Created Successfully")
 
     } catch (error) {
-        serverError(res)
+        console.error('[Product/create]', error.message)
+        return serverError(res)
     }
-
 }
 
+// ── GET /api/product ──────────────────────────────────────────────────────────
 const read = async (req, res) => {
     try {
-
-        const query = req.query
-        const filter = {}
+        const query      = req.query
+        const filter     = {}
         const sortFilter = {}
-        const limit = parseInt(query.limit)
-        const page = query.page || 1
-        const skip = ((page - 1) * limit)
+        const limit      = parseInt(query.limit) || 20
+        const page       = query.page || 1
+        const skip       = ((page - 1) * limit)
+
+        if (query.id)       filter["_id"]    = query.id
+        if (query.status)   filter.status    = query.status === "true"
+        if (query.top_selling) filter.top_selling = query.top_selling === "true"
+        if (query.stock)    filter.stock     = query.stock === "true"
+
         if (query.category_slug) {
-            const category = await CategoryModel.findOne({ slug: query.category_slug })
-            filter.category_Id = category._id
-        }
-
-        if (query.id) filter["_id"] = query.id
-
-        if (query.status) {
-            filter.status = query.status === "true"
-        }
-
-        if (query.top_selling) {
-            filter.top_selling = query.top_selling === "true"
-        }
-
-        if (query.stock) {
-            filter.stock = query.stock === "true"
-        }
-        if (query.category_slug) {
-            const category = await CategoryModel.findOne({ slug: query.category_slug })
-            filter.category_Id = category._id
+            const cat = await CategoryModel.findOne({ slug: query.category_slug })
+            if (cat) filter.category_Id = cat._id
         }
         if (query.brand_slug) {
             const brand = await BrandModel.findOne({ slug: query.brand_slug })
-            filter.brand_Id = brand._id
+            if (brand) filter.brand_Id = brand._id
         }
         if (query.color_slug) {
-
-            const color_slugs = query.color_slug.split(",")
-            const color_ids = []
-
-            for (let slug of color_slugs) {
-                const color = await ColorModel.findOne({ slug: slug.trim() });
-                if (color) {
-                    color_ids.push(color._id);
-                }
+            const slugs    = query.color_slug.split(",")
+            const colorIds = []
+            for (const s of slugs) {
+                const color = await ColorModel.findOne({ slug: s.trim() })
+                if (color) colorIds.push(color._id)
             }
-
-            filter.color_Id = { $in: color_ids };
-
+            filter.color_Id = { $in: colorIds }
         }
-
         if (query.min_price && query.max_price) {
             filter.final_price = {
                 $gte: parseInt(query.min_price),
-                $lte: parseInt(query.max_price)
+                $lte: parseInt(query.max_price),
             }
         }
 
-        if (query.sort) {
-            if (query.sort == "asc") {
-                sortFilter.final_price = 1
-            }
-            else if (query.sort == "dsc") {
-                sortFilter.final_price = -1
-            }
-            else {
-                sortFilter.createdAt = -1
-            }
-        }
-
+        if (query.sort === "asc")  sortFilter.final_price = 1
+        else if (query.sort === "dsc") sortFilter.final_price = -1
+        else sortFilter.createdAt = -1
 
         const [total, data] = await Promise.all([
-            await ProductModel.countDocuments(filter),
-            ProductModel.find(filter).sort(sortFilter).skip(skip).limit(limit)
+            ProductModel.countDocuments(filter),
+            ProductModel.find(filter)
+                .sort(sortFilter).skip(skip).limit(limit)
                 .populate([
-                    {
-                        select: "name _id",
-                        path: "category_Id"
-                    },
-                    {
-                        select: "name _id",
-                        path: "brand_Id"
-                    },
-                    {
-                        select: "name _id color_code slug",
-                        path: "color_Id"
-                    },
-                ])
+                    { select: "name _id",              path: "category_Id" },
+                    { select: "name _id",              path: "brand_Id" },
+                    { select: "name _id color_code slug", path: "color_Id" },
+                ]),
         ])
 
+        // imageBaseUrl is empty string because thumbnails are now full Cloudinary URLs
         return sendSuccess(res, data, {
-            limit,
-            skip,
+            limit, skip,
             pages: Math.ceil(total / limit),
-            total: total,
-            imageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/product/"
+            total,
+            imageBaseUrl: "",   // Cloudinary URLs are absolute — no base URL needed
         })
     } catch (error) {
+        console.error('[Product/read]', error.message)
         return serverError(res)
     }
 }
 
+// ── GET /api/product/:id ──────────────────────────────────────────────────────
+const readById = async (req, res) => {
+    try {
+        const product = await ProductModel.findById(req.params.id)
+            .populate([
+                { select: "name _id",                 path: "category_Id" },
+                { select: "name _id",                 path: "brand_Id" },
+                { select: "name _id color_code slug", path: "color_Id" },
+            ])
+
+        if (!product) return notFound(res, "Product not found")
+
+        return sendSuccess(res, product, {
+            imageBaseUrl: "",   // Cloudinary URLs are absolute
+        })
+    } catch (error) {
+        console.error('[Product/readById]', error.message)
+        return serverError(res)
+    }
+}
+
+// ── POST /api/product/:id/images ─────────────────────────────────────────────
 const upload_image = async (req, res) => {
     try {
-        const { id } = req.params
-        const product = await ProductModel.findById(id)
+        const product = await ProductModel.findById(req.params.id)
         if (!product) return notFound(res, "Product Not Found")
-        if (!req.files || !req.files.images) return sendBadRequest(res, "images Not Exist")
-        const images = Array.isArray(req.files.images) ? req.files.images : [req.files.images]
-        const image_names = []
-        for (let image of images) {
-            const img_name = imageName(image.name)
-            const destination = `./public/product/other/${img_name}`
-            await image.mv(destination)
-            image_names.push(img_name)
+
+        if (!req.files?.images) return sendBadRequest(res, "No images provided")
+
+        const files  = Array.isArray(req.files.images) ? req.files.images : [req.files.images]
+        const urls   = []
+
+        for (const file of files) {
+            const url = await uploadToCloudinary(file.data, 'swootechmart/products/gallery')
+            urls.push(url)
         }
-        product.images.push(...image_names)
+
+        product.images.push(...urls)
         await product.save()
-        return sendSuccess(res, product, "images Added Successfully",)
+
+        return sendSuccess(res, product, {}, "Images Added Successfully")
     } catch (error) {
-        console.log(error)
+        console.error('[Product/upload_image]', error.message)
         return serverError(res)
     }
-
-
 }
 
+// ── DELETE /api/product/:id/images ───────────────────────────────────────────
 const delete_image = async (req, res) => {
     try {
-        const { id } = req.params
-        const { image_name } = req.body
+        const { id }         = req.params
+        const { image_name } = req.body   // now this is the full Cloudinary URL
 
         const product = await ProductModel.findById(id)
-        if (!product) {
-            return notFound(res, "Product Does Not Exist")
-        }
+        if (!product) return notFound(res, "Product Does Not Exist")
 
+        // Remove from DB
         await ProductModel.findByIdAndUpdate(id, {
             $pull: { images: image_name }
         })
 
-        fs.unlink(`./public/product/other/${image_name}`, (err) => {
-            if (err) console.log("Unable to delete image", err)
-        })
+        // Delete from Cloudinary (non-critical)
+        await deleteFromCloudinary(image_name)
 
-        return sendSuccess(res, "Image successfully deleted")
-
+        return sendSuccess(res, "Image deleted successfully")
     } catch (error) {
+        console.error('[Product/delete_image]', error.message)
         return serverError(res)
     }
 }
 
-const readById = async (req, res) => {
-    try {
-        const id = req.params.id
-        const total = await ProductModel.countDocuments()
-        const meta = {
-            total,
-            imageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/product/other/"
-        }
-        const product = await ProductModel.findById(id)
-            .populate([
-                {
-                    select: "name _id",
-                    path: "category_Id"
-                },
-                {
-                    select: "name _id",
-                    path: "brand_Id"
-                },
-                {
-                    select: "name _id color_code slug",
-                    path: "color_Id"
-                },
-            ])
-        if (product) {
-            return sendSuccess(res, product, meta)
-        }
-    } catch (error) {
-        return serverError(res)
-    }
-}
-
-
+// ── PATCH /api/product/:id/toggle ────────────────────────────────────────────
+// Toggle boolean fields: top_selling, stock, status
 const updateProduct = async (req, res) => {
     try {
         const { field } = req.body
-        const id = req.params.id
-        const fields = ["top_selling", "stock", "status"]
-        const product = await ProductModel.findById(id)
-        if (!product) {
-            return notFound(res)
-        }
+        const allowed   = ["top_selling", "stock", "status"]
 
-        if (!fields.includes(field)) return sendBadRequest(res)
+        if (!allowed.includes(field)) return sendBadRequest(res, "Invalid field")
 
-        await ProductModel.findByIdAndUpdate(id, {
+        const product = await ProductModel.findById(req.params.id)
+        if (!product) return notFound(res)
+
+        await ProductModel.findByIdAndUpdate(req.params.id, {
             [field]: !product[field]
         })
 
-        res.status(202).json({
-            msg: "Student Status Updated",
+        return res.status(202).json({
             success: true,
-            data: product
+            msg:     "Field updated",
+            data:    product,
         })
-
     } catch (error) {
         return serverError(res)
     }
 }
 
-
-const deleteProduct = async (req, res) => {
-    try {
-        const id = req.params.id
-
-        const product = await ProductModel.findByIdAndDelete(id)
-
-        if (product) {
-            // Delete thumbnail from public/product/
-            if (product.thumbnail) {
-                deleteFile(path.join(".", "public", "product", product.thumbnail))
-            }
-            // Delete all additional images from public/product/other/
-            if (product.images && product.images.length > 0) {
-                product.images.forEach(img => {
-                    deleteFile(path.join(".", "public", "product", "other", img))
-                })
-            }
-        }
-
-        sendSuccess(res)
-
-    } catch (error) {
-        return serverError(res)
-    }
-}
-
-// update Category API
-
-// const update = async (req, res) => {
-//     try {
-//         const image = req.files?.image || null
-//         const id = req.params.id
-
-//         const category = await CategoryModel.findById(id)
-//         if (!category) {
-//             return notFound(res)
-//         }
-
-//         const object = {}
-
-//         if (req.body.name) {
-//             object.name = req.body.name;
-//             object.slug = req.body.slug;
-//         }
-
-//         if (image) {
-//             const category_image = imageName(image.name)
-//             const destination = `./public/category/${category_image}`
-
-//             await image.mv(destination)
-//             object.image = category_image
-//         }
-
-//         await CategoryModel.updateOne(
-//             { _id: category._id },
-//             { $set: object }
-//         )
-
-
-//         sendSuccess(res)
-//     } catch (error) {
-//         console.log(error)
-//         return serverError(res)
-//     }
-// }
-
+// ── PUT /api/product/:id ──────────────────────────────────────────────────────
 const update = async (req, res) => {
     try {
-        const id = req.params.id
-        const product = await ProductModel.findById(id)
+        const product = await ProductModel.findById(req.params.id)
         if (!product) return notFound(res)
 
-        const object = {}
+        const obj = {}
+        const b   = req.body
 
-        if (req.body.name)              object.name               = req.body.name
-        if (req.body.slug)              object.slug               = req.body.slug
-        if (req.body.original_price)    object.original_price     = req.body.original_price
-        if (req.body.final_price)       object.final_price        = req.body.final_price
-        if (req.body.discount)          object.discount           = req.body.discount
-        if (req.body.short_description) object.short_description  = req.body.short_description
-        if (req.body.long_description)  object.long_description   = req.body.long_description
-        if (req.body.category_Id)       object.category_Id        = req.body.category_Id
-        if (req.body.brand_Id)          object.brand_Id           = req.body.brand_Id
-        if (req.body.color_Id)          object.color_Id           = JSON.parse(req.body.color_Id)
-        if (req.body.stock  !== undefined) object.stock           = req.body.stock  === "true"
-        if (req.body.top_selling !== undefined) object.top_selling = req.body.top_selling === "true"
-        if (req.body.status !== undefined) object.status          = req.body.status === "true"
+        if (b.name)              obj.name              = b.name
+        if (b.slug)              obj.slug              = b.slug
+        if (b.original_price)    obj.original_price    = b.original_price
+        if (b.final_price)       obj.final_price       = b.final_price
+        if (b.discount)          obj.discount          = b.discount
+        if (b.short_description) obj.short_description = b.short_description
+        if (b.long_description)  obj.long_description  = b.long_description
+        if (b.category_Id)       obj.category_Id       = b.category_Id
+        if (b.brand_Id)          obj.brand_Id          = b.brand_Id
+        if (b.color_Id)          obj.color_Id          = JSON.parse(b.color_Id)
+        if (b.stock       !== undefined) obj.stock       = b.stock       === "true"
+        if (b.top_selling !== undefined) obj.top_selling = b.top_selling === "true"
+        if (b.status      !== undefined) obj.status      = b.status      === "true"
 
-        const thumbnail = req.files?.thumbnail
-        if (thumbnail) {
-            // Delete old thumbnail before saving new one
+        if (req.files?.thumbnail) {
+            // Upload new thumbnail to Cloudinary
+            const newUrl = await uploadToCloudinary(
+                req.files.thumbnail.data,
+                'swootechmart/products/thumbnails'
+            )
+            // Delete old thumbnail from Cloudinary (non-critical)
             if (product.thumbnail) {
-                deleteFile(path.join(".", "public", "product", product.thumbnail))
+                await deleteFromCloudinary(product.thumbnail)
             }
-            const img_name = imageName(thumbnail.name)
-            const destination = `./public/product/${img_name}`
-            await thumbnail.mv(destination)
-            object.thumbnail = img_name
+            obj.thumbnail = newUrl
         }
 
-        await ProductModel.updateOne({ _id: id }, { $set: object })
-        return sendSuccess(res, "Product Updated Successfully")
+        await ProductModel.updateOne({ _id: req.params.id }, { $set: obj })
+        return sendSuccess(res, null, {}, "Product Updated Successfully")
 
     } catch (error) {
-        console.log(error)
+        console.error('[Product/update]', error.message)
         return serverError(res)
     }
 }
 
-module.exports = { create, read, upload_image, updateProduct, update, readById, delete_image, deleteProduct }
+// ── DELETE /api/product/:id ───────────────────────────────────────────────────
+const deleteProduct = async (req, res) => {
+    try {
+        const product = await ProductModel.findByIdAndDelete(req.params.id)
+
+        if (product) {
+            // Delete Cloudinary images (non-critical — don't block response)
+            const deletePromises = []
+
+            if (product.thumbnail) {
+                deletePromises.push(deleteFromCloudinary(product.thumbnail))
+            }
+            if (product.images?.length > 0) {
+                product.images.forEach(url => deletePromises.push(deleteFromCloudinary(url)))
+            }
+
+            Promise.allSettled(deletePromises).then(results => {
+                const failed = results.filter(r => r.status === 'rejected')
+                if (failed.length > 0) {
+                    console.warn('[Product/delete] Some Cloudinary deletes failed:', failed.length)
+                }
+            })
+        }
+
+        return sendSuccess(res, null, {}, "Product Deleted Successfully")
+    } catch (error) {
+        console.error('[Product/deleteProduct]', error.message)
+        return serverError(res)
+    }
+}
+
+module.exports = {
+    create, read, readById,
+    upload_image, delete_image,
+    updateProduct, update,
+    deleteProduct,
+}

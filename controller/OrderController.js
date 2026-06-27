@@ -252,8 +252,7 @@ const getMyOrders = async (req, res) => {
         const orders = await orderModel.find({ user: req.user._id })
             .populate({ path: 'items.product_id', select: 'name thumbnail slug' })
             .sort({ createdAt: -1 })
-        const imageBaseUrl = (process.env.BACKEND_URL || 'http://localhost:5000') + '/product/'
-        return res.status(200).json({ success: true, data: orders, meta: { imageBaseUrl } })
+        return res.status(200).json({ success: true, data: orders, meta: { imageBaseUrl: '' } })
     } catch (error) {
         console.error('[getMyOrders] Error:', error.message, error.stack)
         return serverError(res)
@@ -286,7 +285,7 @@ const getOrderById = async (req, res) => {
         if (order.user.toString() !== userId.toString()) {
             return res.status(403).json({ success: false, msg: 'Unauthorized' })
         }
-        const imageBaseUrl = (process.env.BACKEND_URL || 'http://localhost:5000') + '/product/'
+        const imageBaseUrl = ''
         return res.status(200).json({ success: true, data: order, meta: { imageBaseUrl } })
     } catch (error) {
         console.error('[getOrderById] Error:', error.message, error.stack)

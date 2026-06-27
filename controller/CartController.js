@@ -16,11 +16,11 @@ const syncCart = async (req, res) => {
                     select: "name _id original_price final_price discount price thumbnail stock"
                 });
 
-            return res.status(200).json({
+        return res.status(200).json({
                 message: "Fetched cart from server",
                 success: true,
                 cart: userCart ? userCart.items : [],
-                imageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/product/"
+                imageBaseUrl: ""   // Cloudinary URLs are absolute — no base URL needed
             });
         }
 
@@ -76,8 +76,7 @@ const syncCart = async (req, res) => {
             message: "Cart synced successfully",
             success: true,
             cart: populatedCart,
-            imageBaseUrl: (process.env.BACKEND_URL || "http://localhost:5000") + "/product/"
-
+            imageBaseUrl: ""   // Cloudinary URLs are absolute
         });
 
     } catch (error) {
