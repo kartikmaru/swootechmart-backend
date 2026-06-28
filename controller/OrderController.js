@@ -5,23 +5,28 @@ const Razorpay = require('razorpay')
 const crypto   = require("crypto");
 
 // ── Helper ────────────────────────────────────────────────────────────────────
+// Support both RAZORPAY_KEY_API and RAZORPAY_KEY_ID (common naming variations)
 function getRazorpay() {
-    if (!process.env.RAZORPAY_KEY_API || !process.env.RAZORPAY_KEY_SECRET) {
-        throw new Error('Razorpay credentials not configured in environment variables')
+    const key_id     = process.env.RAZORPAY_KEY_API || process.env.RAZORPAY_KEY_ID
+    const key_secret = process.env.RAZORPAY_KEY_SECRET
+    if (!key_id || !key_secret) {
+        throw new Error(
+            'Razorpay credentials not configured. ' +
+            `KEY_API: ${!!process.env.RAZORPAY_KEY_API}, KEY_ID: ${!!process.env.RAZORPAY_KEY_ID}, KEY_SECRET: ${!!key_secret}`
+        )
     }
-    return new Razorpay({
-        key_id:     process.env.RAZORPAY_KEY_API,
-        key_secret: process.env.RAZORPAY_KEY_SECRET,
-    })
+    return new Razorpay({ key_id, key_secret })
 }
 
 // Build product details from validated cart items
+// Maps populated cart items → OrderModel productDetailsSchema shape
 function buildProductDetails(validItems) {
     return validItems.map(item => {
+        // item.productId is the populated product document (guaranteed non-null by validItems filter)
         const price = Math.round(Number(item.productId.final_price) * 100) / 100
         const qty   = Number(item.qty) || 1
         return {
-            product_id: item.productId._id,
+            product_id: item.productId._id,   // matches productDetailsSchema field name
             qty,
             price,
             total: Math.round(price * qty * 100) / 100,
@@ -40,49 +45,107 @@ function calcTotal(productDetails) {
 //         DB order is created in /verify AFTER signature check
 const create = async (req, res) => {
     try {
-        const userId = req.user._id
-        const { paymentMethod, address } = req.body
+        // ── Step 1: Auth & body extraction ───────────────────────────────────
+        const userId = req.user?._id
+        console.log('[Order/place] ▶ START', {
+            userId:        userId?.toString() || 'UNDEFINED — auth failed',
+            paymentMethod: req.body?.paymentMethod,
+            hasAddress:    !!req.body?.address,
+            bodyKeys:      Object.keys(req.body || {}),
+        })
 
-        console.log('[Order/place]', { userId: userId.toString(), paymentMethod, hasAddress: !!address })
-
-        if (!paymentMethod || !address) {
-            return res.status(400).json({ success: false, message: 'Payment method and address are required' })
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Not authenticated — req.user missing' })
         }
 
-        // Always fetch cart from DB — never trust frontend-sent totals
+        const { paymentMethod, address } = req.body
+
+        if (!paymentMethod || !address) {
+            return res.status(400).json({
+                success: false,
+                message: `Missing required fields. paymentMethod: ${!!paymentMethod}, address: ${!!address}`,
+            })
+        }
+
+        // ── Step 2: Sanitize address ──────────────────────────────────────────
+        // MongoDB embedded doc sends back _id and other extra fields — strip them
+        const shippingAddress = {
+            fullName:    String(address.fullName    || address.name    || '').trim(),
+            mobile:      String(address.mobile      || address.phone   || '').trim(),
+            pincode:     String(address.pincode     || address.zip     || '').trim(),
+            addressLine: String(address.addressLine || address.address || '').trim(),
+            city:        String(address.city        || '').trim(),
+            state:       String(address.state       || '').trim(),
+            country:     String(address.country     || 'India').trim(),
+        }
+
+        console.log('[Order/place] shippingAddress:', shippingAddress)
+
+        const missingFields = Object.entries(shippingAddress)
+            .filter(([key, val]) => key !== 'country' && !val)
+            .map(([key]) => key)
+
+        if (missingFields.length > 0) {
+            console.warn('[Order/place] Missing address fields:', missingFields)
+            return res.status(400).json({
+                success: false,
+                message: `Address incomplete. Missing: ${missingFields.join(', ')}`,
+            })
+        }
+
+        // ── Step 3: Fetch cart from DB ────────────────────────────────────────
+        console.log('[Order/place] Fetching cart for userId:', userId.toString())
         const userCart = await CartModel.findOne({ userId })
             .populate({ path: 'items.productId', select: '_id final_price original_price name' })
 
+        console.log('[Order/place] Cart found:', !!userCart, '| Items count:', userCart?.items?.length ?? 0)
+
         if (!userCart || !userCart.items?.length) {
-            return res.status(400).json({ success: false, message: 'Cart is empty' })
+            return res.status(400).json({
+                success: false,
+                message: 'Cart is empty. Please add items to cart before placing order.',
+            })
         }
 
-        const validItems = userCart.items.filter(i => i.productId && i.productId.final_price)
+        // Filter out any items where product was deleted (populate returns null)
+        const validItems = userCart.items.filter(
+            i => i.productId && i.productId._id && i.productId.final_price
+        )
+        console.log('[Order/place] Valid items after filter:', validItems.length, '/', userCart.items.length)
+
         if (!validItems.length) {
-            return res.status(400).json({ success: false, message: 'No valid products in cart' })
+            return res.status(400).json({
+                success: false,
+                message: 'No valid products in cart. Some products may have been removed.',
+            })
         }
 
+        // ── Step 4: Build order data ──────────────────────────────────────────
         const productDetails = buildProductDetails(validItems)
         const total_amount   = calcTotal(productDetails)
 
-        console.log('[Order/place] Cart total (₹):', total_amount, '| Items:', productDetails.length)
+        console.log('[Order/place] Total ₹:', total_amount, '| Products:', productDetails.length)
+        console.log('[Order/place] productDetails[0]:', productDetails[0])
 
         // ── COD ──────────────────────────────────────────────────────────────
         if (paymentMethod === 'cod') {
-            const userOrder = await orderModel.create({
-                user:            userId,
-                items:           productDetails,
-                shippingAddress: address,
-                paymentMethod:   'cod',
-                totalAmount:     total_amount,
-                paymentStatus:   'pending',
-                orderStatus:     'placed',
-            })
+            const orderPayload = {
+                user:          userId,
+                items:         productDetails,
+                shippingAddress,
+                paymentMethod: 'cod',
+                totalAmount:   total_amount,
+                paymentStatus: 'pending',
+                orderStatus:   'placed',
+            }
+            console.log('[Order/place] Creating COD order with payload:', JSON.stringify(orderPayload, null, 2))
+
+            const userOrder = await orderModel.create(orderPayload)
 
             // Clear cart immediately for COD
             await CartModel.findOneAndUpdate({ userId }, { $set: { items: [] } })
 
-            console.log('[Order/place] COD order created:', userOrder._id.toString())
+            console.log('[Order/place] ✅ COD order created:', userOrder._id.toString())
             return res.status(201).json({
                 success:  true,
                 message:  'Order Placed Successfully',
@@ -92,9 +155,10 @@ const create = async (req, res) => {
 
         // ── Online ────────────────────────────────────────────────────────────
         // IMPORTANT: Do NOT create a DB order yet.
-        // We create DB order only in /verify, after Razorpay confirms payment.
-        // This way, cancelled/abandoned payments leave NO orphan orders in DB.
+        // DB order is created ONLY in /verify, after Razorpay confirms payment.
+        // Cancelled/abandoned payments leave NO orphan orders in DB.
         if (paymentMethod === 'online') {
+            console.log('[Order/place] Initializing Razorpay...')
             const instance      = getRazorpay()
             const amountInPaise = Math.round(total_amount * 100)   // must be integer paise
 
@@ -104,11 +168,10 @@ const create = async (req, res) => {
                 instance.orders.create({
                     amount:   amountInPaise,
                     currency: 'INR',
-                    // receipt is just a label for your reference — not the DB order ID
                     receipt:  `u_${userId.toString().slice(-6)}_${Date.now()}`,
                     notes: {
-                        userId:        userId.toString(),
-                        total_rupees:  total_amount.toString(),
+                        userId:       userId.toString(),
+                        total_rupees: total_amount.toString(),
                     }
                 }, (err, order) => {
                     if (err) reject(err)
@@ -116,33 +179,41 @@ const create = async (req, res) => {
                 })
             })
 
-            console.log('[Order/place] Razorpay order ID:', razorpayOrder.id)
-
-            // Pass address + productDetails back encrypted in the response so
-            // verifyPayment can use them to create the DB order.
-            // We use a simple approach: store them in a temp field in Razorpay notes
-            // OR pass them from frontend back to /verify.
-            // Simplest secure approach: store pending order data in a temporary
-            // in-memory or short-lived DB record keyed by razorpay_order_id.
-            // For now, frontend will resend address to /verify (validated there again).
+            console.log('[Order/place] ✅ Razorpay order created:', razorpayOrder.id)
 
             return res.status(201).json({
                 success:          true,
                 message:          'Razorpay order created — proceed to payment',
-                payment_order_id: razorpayOrder.id,     // Razorpay order ID for checkout
-                amount:           amountInPaise,          // paise — pass directly to Razorpay SDK
+                payment_order_id: razorpayOrder.id,
+                amount:           amountInPaise,
                 currency:         'INR',
-                // Return address back to frontend so it can send to /verify
-                // This avoids re-fetching from profile
-                address_ref:      address,
+                address_ref:      shippingAddress,   // sanitized address echoed back for /verify
             })
         }
 
-        return res.status(400).json({ success: false, message: 'Invalid payment method' })
+        return res.status(400).json({
+            success: false,
+            message: `Invalid paymentMethod: "${paymentMethod}". Must be "cod" or "online".`,
+        })
 
     } catch (error) {
-        console.error('[Order/place] Error:', error.message, error.stack)
-        return serverError(res)
+        // Log full error details so we can diagnose from Render logs
+        console.error('[Order/place] ❌ CAUGHT ERROR:')
+        console.error('  name:   ', error.name)
+        console.error('  message:', error.message)
+        if (error.name === 'ValidationError') {
+            console.error('  Mongoose validation errors:')
+            Object.entries(error.errors || {}).forEach(([field, err]) => {
+                console.error(`    ${field}: ${err.message}`)
+            })
+        }
+        console.error('  stack:  ', error.stack)
+        return res.status(500).json({
+            success: false,
+            msg:     'Internal Server Error',
+            // In development show actual error — in production keep it generic
+            ...(process.env.NODE_ENV !== 'production' && { error: error.message }),
+        })
     }
 }
 
@@ -161,15 +232,18 @@ const verifyPayment = async (req, res) => {
             paymentMethod,       // always 'online' here
         } = req.body
 
-        const userId = req.user._id
-
-        console.log('[Order/verify] Verifying payment:', { razorpay_order_id, razorpay_payment_id })
+        const userId = req.user?._id
+        console.log('[Order/verify] ▶ START', {
+            userId:            userId?.toString() || 'UNDEFINED',
+            razorpay_order_id,
+            razorpay_payment_id,
+            hasAddress:        !!address,
+        })
 
         if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
             return res.status(400).json({ success: false, message: 'Missing payment verification fields' })
         }
 
-        // ── STEP 1: Verify signature ──────────────────────────────────────────
         const signatureBody = `${razorpay_order_id}|${razorpay_payment_id}`
         const expectedSig   = crypto
             .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
@@ -208,12 +282,21 @@ const verifyPayment = async (req, res) => {
             return res.status(200).json({ success: true, message: 'Payment already verified', orderId: existing._id })
         }
 
-        const validItems    = userCart.items.filter(i => i.productId && i.productId.final_price)
+        const validItems     = userCart.items.filter(i => i.productId && i.productId._id && i.productId.final_price)
         const productDetails = buildProductDetails(validItems)
         const total_amount   = calcTotal(productDetails)
 
-        // Address from request body (was returned by /place and re-sent by frontend)
-        const shippingAddress = address || {}
+        // Address from request body — sanitize before saving
+        const rawAddress = address || {}
+        const shippingAddress = {
+            fullName:    rawAddress.fullName    || '',
+            mobile:      rawAddress.mobile      || '',
+            pincode:     rawAddress.pincode     || '',
+            addressLine: rawAddress.addressLine || '',
+            city:        rawAddress.city        || '',
+            state:       rawAddress.state       || '',
+            country:     rawAddress.country     || 'India',
+        }
 
         // ── STEP 3: Create DB order — NOW, only after signature verified ──────
         const userOrder = await orderModel.create({
@@ -241,8 +324,21 @@ const verifyPayment = async (req, res) => {
         })
 
     } catch (error) {
-        console.error('[Order/verify] Error:', error.message, error.stack)
-        return res.status(500).json({ success: false, message: 'Verification error: ' + error.message })
+        console.error('[Order/verify] ❌ CAUGHT ERROR:')
+        console.error('  name:   ', error.name)
+        console.error('  message:', error.message)
+        if (error.name === 'ValidationError') {
+            console.error('  Mongoose validation errors:')
+            Object.entries(error.errors || {}).forEach(([field, err]) => {
+                console.error(`    ${field}: ${err.message}`)
+            })
+        }
+        console.error('  stack:  ', error.stack)
+        return res.status(500).json({
+            success: false,
+            message: 'Verification error',
+            ...(process.env.NODE_ENV !== 'production' && { error: error.message }),
+        })
     }
 }
 
