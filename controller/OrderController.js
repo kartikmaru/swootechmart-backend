@@ -5,17 +5,38 @@ const Razorpay = require('razorpay')
 const crypto   = require("crypto");
 
 // ── Helper ────────────────────────────────────────────────────────────────────
-// Support both RAZORPAY_KEY_API and RAZORPAY_KEY_ID (common naming variations)
+// Support both RAZORPAY_KEY_API and RAZORPAY_KEY_ID (common naming variations on Render)
 function getRazorpay() {
     const key_id     = process.env.RAZORPAY_KEY_API || process.env.RAZORPAY_KEY_ID
     const key_secret = process.env.RAZORPAY_KEY_SECRET
-    if (!key_id || !key_secret) {
-        throw new Error(
-            'Razorpay credentials not configured. ' +
-            `KEY_API: ${!!process.env.RAZORPAY_KEY_API}, KEY_ID: ${!!process.env.RAZORPAY_KEY_ID}, KEY_SECRET: ${!!key_secret}`
-        )
+
+    // Explicit validation before SDK init — avoids crash with empty/undefined error object
+    if (!key_id) {
+        const err = new Error('Payment configuration missing: RAZORPAY_KEY_API (or RAZORPAY_KEY_ID) is not set in environment variables. Add it in Render Dashboard → Environment.')
+        err.code = 'RAZORPAY_CONFIG_MISSING'
+        throw err
     }
+    if (!key_secret) {
+        const err = new Error('Payment configuration missing: RAZORPAY_KEY_SECRET is not set in environment variables. Add it in Render Dashboard → Environment.')
+        err.code = 'RAZORPAY_CONFIG_MISSING'
+        throw err
+    }
+
     return new Razorpay({ key_id, key_secret })
+}
+
+// Helper: extract a readable message from any thrown value.
+// Razorpay SDK sometimes rejects with a plain object { error: { description } }
+// instead of a standard Error instance, which shows as {} in logs.
+function extractErrorMessage(err) {
+    if (!err) return 'Unknown error (null/undefined thrown)'
+    if (typeof err === 'string') return err
+    if (err instanceof Error) return err.message
+    // Razorpay SDK error shape: { statusCode, error: { code, description, ... } }
+    if (err?.error?.description) return `Razorpay: ${err.error.description} (code: ${err.error.code || 'N/A'})`
+    if (err?.message) return err.message
+    // Fallback — stringify the whole thing so nothing is lost
+    try { return JSON.stringify(err) } catch (_) { return String(err) }
 }
 
 // Build product details from validated cart items
@@ -174,8 +195,18 @@ const create = async (req, res) => {
                         total_rupees: total_amount.toString(),
                     }
                 }, (err, order) => {
-                    if (err) reject(err)
-                    else resolve(order)
+                    if (err) {
+                        // Razorpay SDK may return a plain object, not an Error instance.
+                        // Wrap it so the outer catch block always sees a proper Error.
+                        const msg = extractErrorMessage(err)
+                        console.error('[Order/place] Razorpay SDK error:', msg)
+                        console.error('[Order/place] Razorpay raw error:', JSON.stringify(err))
+                        const wrappedErr = new Error(`Razorpay order creation failed: ${msg}`)
+                        wrappedErr.razorpayRaw = err
+                        reject(wrappedErr)
+                    } else {
+                        resolve(order)
+                    }
                 })
             })
 
@@ -197,22 +228,32 @@ const create = async (req, res) => {
         })
 
     } catch (error) {
-        // Log full error details so we can diagnose from Render logs
+        // extractErrorMessage handles non-standard Razorpay error objects (plain {}) too
+        const errMsg = extractErrorMessage(error)
+
         console.error('[Order/place] ❌ CAUGHT ERROR:')
-        console.error('  name:   ', error.name)
-        console.error('  message:', error.message)
-        if (error.name === 'ValidationError') {
+        console.error('  type:   ', typeof error, error?.constructor?.name || '')
+        console.error('  message:', errMsg)
+        console.error('  code:   ', error?.code || 'N/A')
+        if (error?.razorpayRaw) {
+            console.error('  razorpay raw:', JSON.stringify(error.razorpayRaw))
+        }
+        if (error?.name === 'ValidationError') {
             console.error('  Mongoose validation errors:')
             Object.entries(error.errors || {}).forEach(([field, err]) => {
                 console.error(`    ${field}: ${err.message}`)
             })
         }
-        console.error('  stack:  ', error.stack)
+        console.error('  stack:  ', error?.stack || '(no stack)')
+
+        // Return "Payment configuration missing" clearly if that's the cause
+        const isConfigError = error?.code === 'RAZORPAY_CONFIG_MISSING'
         return res.status(500).json({
             success: false,
-            msg:     'Internal Server Error',
-            // In development show actual error — in production keep it generic
-            ...(process.env.NODE_ENV !== 'production' && { error: error.message }),
+            msg: isConfigError
+                ? 'Payment configuration missing on server. Contact support.'
+                : 'Internal Server Error',
+            ...(process.env.NODE_ENV !== 'production' && { error: errMsg }),
         })
     }
 }
@@ -324,20 +365,21 @@ const verifyPayment = async (req, res) => {
         })
 
     } catch (error) {
+        const errMsg = extractErrorMessage(error)
         console.error('[Order/verify] ❌ CAUGHT ERROR:')
-        console.error('  name:   ', error.name)
-        console.error('  message:', error.message)
-        if (error.name === 'ValidationError') {
+        console.error('  type:   ', typeof error, error?.constructor?.name || '')
+        console.error('  message:', errMsg)
+        if (error?.name === 'ValidationError') {
             console.error('  Mongoose validation errors:')
             Object.entries(error.errors || {}).forEach(([field, err]) => {
                 console.error(`    ${field}: ${err.message}`)
             })
         }
-        console.error('  stack:  ', error.stack)
+        console.error('  stack:  ', error?.stack || '(no stack)')
         return res.status(500).json({
             success: false,
             message: 'Verification error',
-            ...(process.env.NODE_ENV !== 'production' && { error: error.message }),
+            ...(process.env.NODE_ENV !== 'production' && { error: errMsg }),
         })
     }
 }

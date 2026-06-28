@@ -4,6 +4,22 @@ const mongoose     = require("mongoose")
 const cors         = require("cors")
 const cookieParser = require('cookie-parser')
 
+// ── Startup env diagnostics ───────────────────────────────────────────────────
+// Run immediately after dotenv so we can see which critical vars loaded.
+// If a var shows "❌ MISSING" on Render, add it in:
+//   Render Dashboard → Your Service → Environment → Add Environment Variable
+console.log('=== ENV CHECK ===')
+console.log('SECRET_KEY          :', process.env.SECRET_KEY           ? '✅ set' : '❌ MISSING')
+console.log('MONGODB_URL         :', process.env.MONGODB_URL          ? '✅ set' : '❌ MISSING')
+console.log('RAZORPAY_KEY_API    :', process.env.RAZORPAY_KEY_API     ? '✅ set' : '❌ MISSING')
+console.log('RAZORPAY_KEY_SECRET :', process.env.RAZORPAY_KEY_SECRET  ? '✅ set' : '❌ MISSING')
+console.log('CLOUDINARY_CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME ? '✅ set' : '❌ MISSING')
+console.log('BREVO_API_KEY       :', process.env.BREVO_API_KEY        ? '✅ set' : '❌ MISSING')
+console.log('FRONTEND_URL        :', process.env.FRONTEND_URL         || '❌ MISSING')
+console.log('NODE_ENV            :', process.env.NODE_ENV             || 'development')
+console.log('=================')
+// ─────────────────────────────────────────────────────────────────────────────
+
 const app = express()
 
 // ── CORS must come FIRST — before body parsers and routes ─────────────────────
